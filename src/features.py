@@ -1,0 +1,1 @@
+# funkcje do przetwarzania danych i tworzenia cech.

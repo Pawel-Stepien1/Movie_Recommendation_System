@@ -1,0 +1,1 @@
+# funkcje do wczytywania danych z data/raw/ i zapisywania do data/processed/.
