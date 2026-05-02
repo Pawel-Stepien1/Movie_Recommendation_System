@@ -1,6 +1,9 @@
 # funkcje/klasy do budowy, trenowania i ewaluacji modeli ML.
 
-# == Imports ==
+#======================================================================================================================
+#====================================================== IMPORT =======================================================#
+#======================================================================================================================
+
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -9,11 +12,15 @@ import mlflow.sklearn
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # ======= Models =======
 
-# == Collaborative Filtering with Matrix Factorization (SGD) ==
+#======================================================================================================================
+#=============================== Collaborative Filtering with Matrix Factorization (SGD)  ============================#
+#======================================================================================================================
+
 class MF_SGD:
     """
     Matrix Factorization using Stochastic Gradient Descent.
@@ -376,3 +383,44 @@ class MF_SVD:
         
         # Return movie titles from metadata
         return df_movies[df_movies['movieId'].isin(movie_ids)][['title']]
+    
+#======================================================================================================================
+#=================================================== CONTENT BASED ====================================================
+#======================================================================================================================
+
+def content_based_recommendations(movie_id, df, matrix, top_n=10):
+    """
+    Recommends movies similar to a given movie using a content-based approach
+    based on cosine similarity of TF-IDF feature vectors.
+
+    The function finds the target movie in the dataset, computes cosine similarity
+    between its feature vector and all other movies, and returns the most similar ones.
+
+    Parameters
+    ----------
+    movie_id : int
+        ID of the reference movie for which recommendations are generated.
+    df : pandas.DataFrame
+        DataFrame containing movie metadata. Must include:
+        - 'movieId' : int
+        - 'title' : str
+    matrix : scipy.sparse matrix
+        TF-IDF feature matrix where each row corresponds to a movie.
+    top_n : int, optional (default=10)
+        Number of recommended movies to return.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing the top-N most similar movies with columns:
+        - 'movieId'
+        - 'title'
+    """
+
+    idx = df.index[df["movieId"] == movie_id][0]
+
+    similarity = cosine_similarity(matrix[idx], matrix).flatten()
+
+    similar_indices = similarity.argsort()[::-1][1:top_n+1]
+
+    return df.iloc[similar_indices][["movieId", "title"]]

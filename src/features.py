@@ -6,6 +6,7 @@
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 #======================================================================================================================
 #=================================================== VISUALISATION ===================================================#
@@ -98,3 +99,78 @@ def plot_value_counts(df, column, title, xlabel):
     print(f"\nValue counts for '{column}':\n")
     for value, count in counts.items():
         print(f"{value}: {count}")
+
+#======================================================================================================================
+#================================================ FEATURES ENGINEERING ===============================================#
+#======================================================================================================================
+
+#=================================================== CONTENT BASED ====================================================
+
+def merge_movies_with_tags(movies, tags):
+    """
+    Merges movies with tags grouped by movieId.
+
+    Parameters
+    ----------
+    movies : pandas.DataFrame
+        DataFrame with columns: movieId, title, genres
+    tags : pandas.DataFrame
+        DataFrame with columns: movieId, tag
+
+    Returns
+    -------
+    pandas.DataFrame
+        Movies enriched with a 'tags' column (aggregated per movieId)
+    """
+
+    # tag grouping for each movie
+    tags_grouped = tags.groupby("movieId")["tag"].apply(lambda x: " ".join(x)).reset_index()
+
+    # merge with movies
+    merged = movies.merge(tags_grouped, on="movieId", how="left")
+
+    return merged
+
+
+
+def build_content_matrix(df):
+    """
+    Builds a TF-IDF feature matrix for a content-based recommendation system.
+
+    The function combines movie genres and tags into a single textual representation,
+    then transforms this text into a numerical matrix using TF-IDF vectorization.
+    This matrix can be used to compute similarity between movies.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame containing at least the following columns:
+        - 'genres' : str
+            Movie genres separated by '|'
+        - 'tag' : str
+            User-generated tags associated with movies (can contain NaN values)
+
+    Returns
+    -------
+    matrix : scipy.sparse matrix
+        TF-IDF feature matrix representing each movie as a vector of features.
+    vectorizer : sklearn.feature_extraction.text.TfidfVectorizer
+        Fitted TF-IDF vectorizer used to transform the text data.
+    """
+
+    # genres as text
+    df["genres_clean"] = df["genres"].str.replace("|", " ")
+
+    # no tags => empty string
+    df["tag"] = df["tag"].fillna("")
+
+    # we combine features
+    df["content"] = df["genres_clean"] + " " + df["tag"]
+
+    # TF-IDF
+    vectorizer = TfidfVectorizer()
+    matrix = vectorizer.fit_transform(df["content"])
+
+    return matrix, vectorizer
+
+#=============================== Collaborative Filtering with Matrix Factorization (SGD)  ============================#
