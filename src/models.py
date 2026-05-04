@@ -25,7 +25,7 @@ class MF_SGD:
     """
     Matrix Factorization using Stochastic Gradient Descent.
 
-    Input
+    Parameters
     ---------------
     k : int
         Number of latent factors
@@ -36,7 +36,7 @@ class MF_SGD:
     epochs : int
         Number of training epochs
 
-    Output
+    Returns
     --------
     Trained MF model
     """
@@ -52,7 +52,7 @@ class MF_SGD:
         """
         Train MF model.
 
-        Input
+        Parameters
         ---------------
         train_users : np.ndarray
         train_items : np.ndarray
@@ -60,7 +60,7 @@ class MF_SGD:
         n_users : int
         n_items : int
 
-        Output
+        Returns
         --------
         self
         """
@@ -106,7 +106,7 @@ class MF_SGD:
                 total_error += err**2
 
             rmse = np.sqrt(total_error / len(train_users))
-            print(f"[MF-SGD] Epoch {epoch+1}: RMSE = {rmse:.4f}")
+            print(f"[cf-sgd] Epoch {epoch+1}: RMSE = {rmse:.4f}")
 
         return self
 
@@ -114,42 +114,37 @@ class MF_SGD:
         """
         Predict rating for a single user-item pair.
 
-        Input
+        Parameters
         ---------------
         u : int
         i : int
 
-        Output
+        Returns
         --------
         float
         """
         return self.mu + self.bu[u] + self.bi[i] + np.dot(self.P[u], self.Q[i])
 
-    def predict_batch(self, users, items):
+    def predict(self, users, items):
         """
         Predict ratings for multiple user-item pairs.
 
-        Input
+        Parameters
         ---------------
         users : np.ndarray
         items : np.ndarray
 
-        Output
+        Returns
         --------
         np.ndarray
         """
-        return (
-            self.mu
-            + self.bu[users]
-            + self.bi[items]
-            + np.sum(self.P[users] * self.Q[items], axis=1)
-        )
+        return (self.mu + self.bu[users] + self.bi[items] + np.sum(self.P[users] * self.Q[items], axis=1))
 
     def recommend(self, user_id, user_map, movie_map, df_movies, top_n=10):
         """
         Generate Top-N recommendations for a user.
 
-        Input
+        Parameters
         ---------------
         user_id : int
         user_map : dict
@@ -157,7 +152,7 @@ class MF_SGD:
         df_movies : pd.DataFrame
         top_n : int
 
-        Output
+        Returns
         --------
         pd.DataFrame
             Recommended movies (titles)
@@ -176,79 +171,15 @@ class MF_SGD:
 
         return df_movies[df_movies['movieId'].isin(movie_ids)][['title']]
 
-
-# =========================
-# DATA PREPARATION HELPERS
-# =========================
-
-def prepare_cf_data(df_ratings, test_size=0.2, random_state=42):
-    """
-    Prepare dataset: split and map IDs.
-
-    Input
-    ---------------
-    df_ratings : pd.DataFrame
-    test_size : float
-    random_state : int
-
-    Output
-    --------
-    train_df, test_df, user_map, movie_map
-    """
-    train_df, test_df = train_test_split(
-        df_ratings, test_size=test_size, random_state=random_state
-    )
-
-    user_ids = train_df['userId'].unique()
-    movie_ids = train_df['movieId'].unique()
-
-    user_map = {id: i for i, id in enumerate(user_ids)}
-    movie_map = {id: i for i, id in enumerate(movie_ids)}
-
-    train_df['u'] = train_df['userId'].map(user_map)
-    train_df['i'] = train_df['movieId'].map(movie_map)
-
-    test_df = test_df[
-        test_df['userId'].isin(user_map) &
-        test_df['movieId'].isin(movie_map)
-    ].copy()
-
-    test_df['u'] = test_df['userId'].map(user_map)
-    test_df['i'] = test_df['movieId'].map(movie_map)
-
-    return train_df, test_df, user_map, movie_map
-
-
-def cf_to_numpy(train_df, test_df):
-    """
-    Convert DataFrames to NumPy arrays.
-
-    Input
-    ---------------
-    train_df, test_df : pd.DataFrame
-
-    Output
-    --------
-    train_users, train_items, train_ratings,
-    test_users, test_items, test_ratings
-    """
-    return (
-        train_df['u'].values,
-        train_df['i'].values,
-        train_df['rating'].values,
-        test_df['u'].values,
-        test_df['i'].values,
-        test_df['rating'].values
-    )
-
-# == SVD ==
+#======================================================================================================================
+#=============================== Collaborative Filtering with Matrix Factorization (SVD)  ============================#
+#======================================================================================================================
 class MF_SVD:
     """
     Model-based Collaborative Filtering using Singular Value Decomposition (SVD).
-    This implementation applies user-mean normalization to handle the cold-start 
-    problem for existing users and optimizes performance for large datasets.
+    This implementation applies user-mean normalization.
 
-    Input
+    Parameters
     ----------
     k : int
         Number of latent factors (rank of the approximation).
@@ -267,7 +198,7 @@ class MF_SVD:
         Train the SVD model by decomposing the normalized user-item matrix.
         Matches the 'u' and 'i' column naming convention from prepare_cf_data.
 
-        Input
+        Parameters
         ----------
         train_df : pd.DataFrame
             DataFrame containing columns ['u', 'i', 'rating'].
@@ -276,7 +207,7 @@ class MF_SVD:
         n_movies : int
             Total number of unique movies.
 
-        Output
+        Returns
         -----------
         self : MF_SVD
             The trained model instance.
@@ -297,11 +228,9 @@ class MF_SVD:
         # Create sparse matrix for memory-efficient decomposition
         train_sparse = csr_matrix(
             (train_df_norm['rating_norm'], (train_df_norm[u_col], train_df_norm[i_col])),
-            shape=(n_users, n_movies)
-        )
+            shape=(n_users, n_movies))
 
         # Perform Spectral Decomposition (SVD)
-        # svds returns U, s, and Vt matrices
         u, s, vt = svds(train_sparse.astype(float), k=self.k)
         
         # Sort latent factors in descending order by singular values
@@ -312,18 +241,18 @@ class MF_SVD:
 
         return self
 
-    def predict_batch(self, user_indices, movie_indices):
+    def predict(self, user_indices, movie_indices):
         """
         Predict ratings for a batch of user-item pairs using matrix dot products.
 
-        Input
+        Parameters
         ----------
         user_indices : np.ndarray
             Array of mapped user indices ('u').
         movie_indices : np.ndarray
             Array of mapped movie indices ('i').
 
-        Output
+        Returns
         -----------
         predictions : np.ndarray
             Predicted ratings clipped to the standard [0.5, 5.0] scale.
@@ -345,7 +274,7 @@ class MF_SVD:
         """
         Generate Top-N recommendations for a specific user ID.
 
-        Input
+        Parameters
         ----------
         user_id : int
             Original user ID from the source dataset.
@@ -358,7 +287,7 @@ class MF_SVD:
         top_n : int
             Number of top-rated movies to return.
 
-        Output
+        Returns
         -----------
         recommendations : pd.DataFrame
             DataFrame containing top-N recommended movie titles.
@@ -380,8 +309,7 @@ class MF_SVD:
         # Reverse map indices back to original movie IDs
         inv_movie_map = {v: k for k, v in movie_map.items()}
         movie_ids = [inv_movie_map[idx] for idx in top_indices]
-        
-        # Return movie titles from metadata
+
         return df_movies[df_movies['movieId'].isin(movie_ids)][['title']]
     
 #======================================================================================================================
