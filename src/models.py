@@ -13,6 +13,8 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import normalize
+from tqdm.notebook import tqdm
 
 
 # ======= Models =======
@@ -354,86 +356,249 @@ def content_based_recommendations(movie_id, df, matrix, top_n=10):
     return df.iloc[similar_indices][["movieId", "title"]]
 
 
+# def user_content_recommendations(user_id, ratings, movies, matrix, top_n=10, min_rating=3.5):
+#     """
+#     Generates movie recommendations for a given user based on their entire viewing history
+#     using a content-based filtering approach.
+
+#     The function builds a user profile by aggregating TF-IDF feature vectors of movies
+#     that the user has positively rated (above a specified threshold). Each movie vector
+#     is weighted by the user's rating, creating a representation of the user's preferences.
+#     Then, cosine similarity is computed between the user profile and all movies to find
+#     the most relevant recommendations.
+
+#     Parameters
+#     ----------
+#     user_id : int
+#         ID of the user for whom recommendations are generated.
+#     ratings : pandas.DataFrame
+#         DataFrame containing user ratings with columns:
+#         - 'userId' : int
+#         - 'movieId' : int
+#         - 'rating' : float
+#     movies : pandas.DataFrame
+#         DataFrame containing movie metadata with columns:
+#         - 'movieId' : int
+#         - 'title' : str
+#     matrix : scipy.sparse matrix
+#         TF-IDF feature matrix where each row corresponds to a movie
+#         (aligned with the `movies` DataFrame).
+#     top_n : int, optional (default=10)
+#         Number of recommendations to return.
+#     min_rating : float, optional (default=3.5)
+#         Minimum rating threshold used to determine which movies are considered
+#         "liked" by the user.
+
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         DataFrame containing the top-N recommended movies with columns:
+#         - 'movieId'
+#         - 'title'
+
+#     Notes
+#     -----
+#     - Movies already rated by the user are excluded from recommendations.
+#     - The function operates on sparse matrices for efficiency and avoids
+#       converting them to dense format to reduce memory usage.
+#     - If the user has no ratings above `min_rating`, an empty DataFrame is returned.
+#     """
+
+#     user_ratings = ratings[ratings["userId"] == user_id]
+#     liked = user_ratings[user_ratings["rating"] >= min_rating]
+
+#     if liked.empty:
+#         return pd.DataFrame(columns=["movieId", "title"])
+
+#     # movie indexes
+#     movie_indices = movies.index[movies["movieId"].isin(liked["movieId"])]
+
+#     # weights (ratings)
+#     weights = liked.set_index("movieId").loc[
+#         movies.loc[movie_indices, "movieId"]
+#     ]["rating"].values
+
+#     user_matrix = matrix[movie_indices]
+
+#     user_profile = user_matrix.multiply(weights[:, np.newaxis]).sum(axis=0)
+
+#     user_profile = np.asarray(user_profile)
+
+#     # normalization
+#     user_profile = user_profile / np.sum(weights)
+
+#     # similarity
+#     similarity = cosine_similarity(user_profile, matrix).flatten()
+
+#     # filtering watched movies
+#     seen_movies = set(user_ratings["movieId"])
+
+#     indices = [
+#         i for i in similarity.argsort()[::-1]
+#         if movies.iloc[i]["movieId"] not in seen_movies
+#     ][:top_n]
+
+#     return movies.iloc[indices][["movieId", "title"]]
+
 def user_content_recommendations(user_id, ratings, movies, matrix, top_n=10, min_rating=3.5):
-    """
-    Generates movie recommendations for a given user based on their entire viewing history
-    using a content-based filtering approach.
-
-    The function builds a user profile by aggregating TF-IDF feature vectors of movies
-    that the user has positively rated (above a specified threshold). Each movie vector
-    is weighted by the user's rating, creating a representation of the user's preferences.
-    Then, cosine similarity is computed between the user profile and all movies to find
-    the most relevant recommendations.
-
-    Parameters
-    ----------
-    user_id : int
-        ID of the user for whom recommendations are generated.
-    ratings : pandas.DataFrame
-        DataFrame containing user ratings with columns:
-        - 'userId' : int
-        - 'movieId' : int
-        - 'rating' : float
-    movies : pandas.DataFrame
-        DataFrame containing movie metadata with columns:
-        - 'movieId' : int
-        - 'title' : str
-    matrix : scipy.sparse matrix
-        TF-IDF feature matrix where each row corresponds to a movie
-        (aligned with the `movies` DataFrame).
-    top_n : int, optional (default=10)
-        Number of recommendations to return.
-    min_rating : float, optional (default=3.5)
-        Minimum rating threshold used to determine which movies are considered
-        "liked" by the user.
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame containing the top-N recommended movies with columns:
-        - 'movieId'
-        - 'title'
-
-    Notes
-    -----
-    - Movies already rated by the user are excluded from recommendations.
-    - The function operates on sparse matrices for efficiency and avoids
-      converting them to dense format to reduce memory usage.
-    - If the user has no ratings above `min_rating`, an empty DataFrame is returned.
-    """
 
     user_ratings = ratings[ratings["userId"] == user_id]
     liked = user_ratings[user_ratings["rating"] >= min_rating]
 
     if liked.empty:
-        return pd.DataFrame(columns=["movieId", "title"])
+        return movies.iloc[[]][["movieId", "title"]]
 
-    # movie indexes
+    # indeksy filmów
     movie_indices = movies.index[movies["movieId"].isin(liked["movieId"])]
 
-    # weights (ratings)
     weights = liked.set_index("movieId").loc[
         movies.loc[movie_indices, "movieId"]
     ]["rating"].values
 
+    # profil użytkownika (sparse!)
     user_matrix = matrix[movie_indices]
-
     user_profile = user_matrix.multiply(weights[:, np.newaxis]).sum(axis=0)
 
     user_profile = np.asarray(user_profile)
+    user_profile = normalize(user_profile)
 
-    # normalization
-    user_profile = user_profile / np.sum(weights)
+    # 🔥 szybkie similarity
+    similarity = user_profile @ matrix.T
 
-    # similarity
-    similarity = cosine_similarity(user_profile, matrix).flatten()
+    similarity = similarity.flatten()
 
-    # filtering watched movies
-    seen_movies = set(user_ratings["movieId"])
+    # 🔥 zamiast argsort → argpartition
+    top_idx = np.argpartition(-similarity, top_n + 20)[:top_n + 20]
 
-    indices = [
-        i for i in similarity.argsort()[::-1]
-        if movies.iloc[i]["movieId"] not in seen_movies
+    # usuwamy obejrzane
+    seen = set(user_ratings["movieId"])
+
+    filtered = [
+        i for i in top_idx
+        if movies.iloc[i]["movieId"] not in seen
     ][:top_n]
 
-    return movies.iloc[indices][["movieId", "title"]]
+    return movies.iloc[filtered][["movieId", "title"]]
+
+
+#=================================================== EVALUATION CONTENT BASED ====================================================
+def build_user_dicts(ratings_train, ratings_test):
+    """
+    Precomputes user data for fast lookup.
+    """
+
+    train_dict = {
+        user: group
+        for user, group in ratings_train.groupby("userId")
+    }
+
+    test_dict = {
+        user: group[group["rating"] >= 3.5]["movieId"].tolist()
+        for user, group in ratings_test.groupby("userId")
+    }
+
+    return train_dict, test_dict
+
+
+def hit_rate_at_k(recommended, relevant, k=10):
+    return int(len(set(recommended[:k]) & set(relevant)) > 0)
+
+
+def evaluate_hit_rate_fast(model_func, ratings_train, ratings_test, movies, matrix, k=10):
+    """
+    Fast evaluation using Hit Rate@K with tqdm progress bar.
+    """
+
+    scores = []
+
+    # 🔥 precompute
+    train_dict, test_dict = build_user_dicts(ratings_train, ratings_test)
+
+    users = list(test_dict.keys())
+
+    for user_id in tqdm(users):
+
+        relevant = test_dict[user_id]
+
+        if len(relevant) == 0:
+            continue
+
+        recs = model_func(
+            user_id=user_id,
+            ratings=ratings_train,
+            movies=movies,
+            matrix=matrix,
+            top_n=k
+        )
+
+        recommended = recs["movieId"].values
+
+        score = hit_rate_at_k(recommended, relevant, k)
+        scores.append(score)
+
+    return sum(scores) / len(scores)
+
+
+
+
+# def hit_rate_at_k(recommended, relevant, k=10):
+#     """
+#     Computes Hit Rate@K.
+#     Returns 1 if at least one relevant item is in top-K recommendations, else 0.
+#     """
+
+#     recommended = recommended[:k]
+
+#     return int(len(set(recommended) & set(relevant)) > 0)
+
+
+def train_test_split_per_user(ratings, test_size=0.2):
+    train_list = []
+    test_list = []
+
+    for user_id, group in ratings.groupby("userId"):
+        if len(group) < 5:
+            train_list.append(group)
+            continue
+
+        train, test = train_test_split(group, test_size=test_size, random_state=42)
+
+        train_list.append(train)
+        test_list.append(test)
+
+    return pd.concat(train_list), pd.concat(test_list)
+
+
+def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k=10):
+    """
+    Evaluates recommender using Hit Rate@K.
+    """
+
+    scores = []
+
+    for user_id in ratings_test["userId"].unique():
+
+        # filmy które user naprawdę polubił (test)
+        relevant = ratings_test[
+            (ratings_test["userId"] == user_id) &
+            (ratings_test["rating"] >= 3.5)
+        ]["movieId"].tolist()
+
+        if len(relevant) == 0:
+            continue
+
+        # rekomendacje
+        recs = model_func(
+            user_id=user_id,
+            ratings=ratings_train,
+            movies=movies,
+            matrix=matrix,
+            top_n=k
+        )
+
+        recommended = recs["movieId"].tolist()
+
+        score = hit_rate_at_k(recommended, relevant, k)
+        scores.append(score)
+
+    return sum(scores) / len(scores)
