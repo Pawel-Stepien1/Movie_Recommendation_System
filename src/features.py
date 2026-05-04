@@ -7,6 +7,8 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
+import numpy as np
+from sklearn.model_selection import train_test_split
 
 #======================================================================================================================
 #=================================================== VISUALISATION ===================================================#
@@ -173,4 +175,64 @@ def build_content_matrix(df):
 
     return matrix, vectorizer
 
-#=============================== Collaborative Filtering with Matrix Factorization (SGD)  ============================#
+#=============================== Collaborative Filtering with Matrix Factorization  ============================#
+
+def prepare_cf_data(df_ratings, test_size=0.2, random_state=42):
+    """
+    Prepare dataset: split and map IDs.
+
+    Parameters
+    ---------------
+    df_ratings : pd.DataFrame
+    test_size : float
+    random_state : int
+
+    Returns
+    --------
+    train_df, test_df, user_map, movie_map
+    """
+    train_df, test_df = train_test_split(
+        df_ratings, test_size=test_size, random_state=random_state
+    )
+
+    user_ids = train_df['userId'].unique()
+    movie_ids = train_df['movieId'].unique()
+
+    user_map = {id: i for i, id in enumerate(user_ids)}
+    movie_map = {id: i for i, id in enumerate(movie_ids)}
+
+    train_df['u'] = train_df['userId'].map(user_map)
+    train_df['i'] = train_df['movieId'].map(movie_map)
+
+    test_df = test_df[
+        test_df['userId'].isin(user_map) &
+        test_df['movieId'].isin(movie_map)
+    ].copy()
+
+    test_df['u'] = test_df['userId'].map(user_map)
+    test_df['i'] = test_df['movieId'].map(movie_map)
+
+    return train_df, test_df, user_map, movie_map
+
+
+def cf_to_numpy(train_df, test_df):
+    """
+    Convert DataFrames to NumPy arrays.
+
+    Parameters
+    ---------------
+    train_df, test_df : pd.DataFrame
+
+    Returns
+    --------
+    train_users, train_items, train_ratings,
+    test_users, test_items, test_ratings
+    """
+    return (
+        train_df['u'].values,
+        train_df['i'].values,
+        train_df['rating'].values,
+        test_df['u'].values,
+        test_df['i'].values,
+        test_df['rating'].values
+    )
