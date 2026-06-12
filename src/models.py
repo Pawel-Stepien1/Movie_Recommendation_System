@@ -13,7 +13,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import normalize, MinMaxScaler
 from tqdm.notebook import tqdm
 
 
@@ -602,3 +602,80 @@ def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k
         scores.append(score)
 
     return sum(scores) / len(scores)
+
+#============================================== Hybrid model  ===========================================#
+
+def content_based_scores(user_id, ratings, movies, matrix, min_rating=3.5):
+
+    user_ratings = ratings[ratings["userId"] == user_id]
+    liked = user_ratings[user_ratings["rating"] >= min_rating]
+
+    if liked.empty:
+        return np.zeros(len(movies))
+
+    movie_indices = movies.index[movies["movieId"].isin(liked["movieId"])]
+
+    weights = liked.set_index("movieId").loc[
+        movies.loc[movie_indices, "movieId"]
+    ]["rating"].values
+
+    user_matrix = matrix[movie_indices]
+    user_profile = (user_matrix.multiply(weights[:, np.newaxis]).sum(axis=0))
+
+    user_profile = normalize(np.asarray(user_profile))
+
+    similarity = (user_profile @ matrix.T).flatten()
+
+    return similarity
+
+# SVD score 
+# def cf_scores(model, user_id, user_map):
+
+#     if user_id not in user_map:
+#         return None
+
+#     u = user_map[user_id]
+#     u_mean = model.user_means.get(u, model.global_mean)
+
+#     predictions = (u_mean + np.dot(np.dot(model.U[u], model.sigma), model.Vt))
+
+#     return predictions
+
+# SGD score
+def cf_scores(model, user_id, user_map):
+
+    if user_id not in user_map:
+        return None
+
+    u = user_map[user_id]
+
+    predictions = (model.mu + model.bu[u] + model.bi + model.P[u].dot(model.Q.T))
+
+    return predictions
+
+def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, user_map, movie_map, alpha, top_n):
+    
+    cb_scores = content_based_scores(user_id, ratings, movies, matrix)
+    cf_scores_results = cf_scores(cf_model, user_id, user_map)
+    
+    if cf_scores_results is None:
+        return user_content_recommendations(user_id, ratings, movies, matrix, top_n)
+    
+    cb_scores = MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
+    cf_scores = MinMaxScaler().fit_transform(cf_scores_results.reshape(-1, 1)).flatten()
+    
+    hybrid_scores = alpha*cf_scores_results + (1 - alpha)*cb_scores
+    
+    movies_seen = set(ratings[ratings["userId"] == user_id]["movieId"])
+    recommendations_idx = []
+    
+    for index in np.argsort(hybrid_scores)[::-1]:
+        
+        movie_id = movies.iloc[index]["movieId"]
+        if movie_id not in movies_seen:
+            recommendations_idx.append(index)
+            
+        if len(recommendations_idx) == top_n:
+            break
+        
+    return movies.iloc[recommendations_idx][["movieId", "title"]]
