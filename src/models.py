@@ -642,7 +642,7 @@ def content_based_scores(user_id, ratings, movies, matrix, min_rating=3.5):
 #     return predictions
 
 # SGD score
-def cf_scores(model, user_id, user_map):
+def get_cf_scores(model, user_id, user_map, movie_map, movies):
 
     if user_id not in user_map:
         return None
@@ -650,19 +650,30 @@ def cf_scores(model, user_id, user_map):
     u = user_map[user_id]
 
     predictions = (model.mu + model.bu[u] + model.bi + model.P[u].dot(model.Q.T))
+    
+    full_predictions = np.zeros(len(movies))
+    inv_movie_map = {v: k for k, v in movie_map.items()}
+    movie_index_map = {movie_id: index for index, movie_id in enumerate(movies["movieId"])}
 
-    return predictions
+    for mf_index, score in enumerate(predictions):
+
+        movie_id = inv_movie_map[mf_index]
+
+        if movie_id in movie_index_map:
+            full_predictions[movie_index_map[movie_id]] = score
+
+    return full_predictions
 
 def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, user_map, movie_map, alpha, top_n):
     
     cb_scores = content_based_scores(user_id, ratings, movies, matrix)
-    cf_scores_results = cf_scores(cf_model, user_id, user_map)
+    cf_scores_results = get_cf_scores(cf_model, user_id, user_map, movie_map, movies)
     
     if cf_scores_results is None:
         return user_content_recommendations(user_id, ratings, movies, matrix, top_n)
     
     cb_scores = MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
-    cf_scores = MinMaxScaler().fit_transform(cf_scores_results.reshape(-1, 1)).flatten()
+    cf_scores_results = MinMaxScaler().fit_transform(cf_scores_results.reshape(-1, 1)).flatten()
     
     hybrid_scores = alpha*cf_scores_results + (1 - alpha)*cb_scores
     
