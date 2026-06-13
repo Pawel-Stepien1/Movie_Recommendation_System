@@ -14,7 +14,8 @@ from scipy.sparse.linalg import svds
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize, MinMaxScaler
-from tqdm.notebook import tqdm
+# from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 
 # ======= Models =======
