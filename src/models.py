@@ -451,29 +451,29 @@ def user_content_recommendations(user_id, ratings, movies, matrix, top_n=10, min
     if liked.empty:
         return movies.iloc[[]][["movieId", "title"]]
 
-    # indeksy filmów
+    # movie indexes
     movie_indices = movies.index[movies["movieId"].isin(liked["movieId"])]
 
     weights = liked.set_index("movieId").loc[
         movies.loc[movie_indices, "movieId"]
     ]["rating"].values
 
-    # profil użytkownika (sparse!)
+    # user profile (sparse)
     user_matrix = matrix[movie_indices]
     user_profile = user_matrix.multiply(weights[:, np.newaxis]).sum(axis=0)
 
     user_profile = np.asarray(user_profile)
     user_profile = normalize(user_profile)
 
-    # 🔥 szybkie similarity
+    # similarity
     similarity = user_profile @ matrix.T
 
     similarity = similarity.flatten()
 
-    # 🔥 zamiast argsort → argpartition
+    # argpartition
     top_idx = np.argpartition(-similarity, top_n + 20)[:top_n + 20]
 
-    # usuwamy obejrzane
+    # we're removing watched movies from the top candidates
     seen = set(user_ratings["movieId"])
 
     filtered = [
@@ -514,7 +514,7 @@ def evaluate_hit_rate_fast(model_func, ratings_train, ratings_test, movies, matr
 
     scores = []
 
-    # 🔥 precompute
+    # precompute
     train_dict, test_dict = build_user_dicts(ratings_train, ratings_test)
 
     users = list(test_dict.keys())
@@ -581,7 +581,7 @@ def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k
 
     for user_id in ratings_test["userId"].unique():
 
-        # filmy które user naprawdę polubił (test)
+        # movies that the user really liked (test)
         relevant = ratings_test[
             (ratings_test["userId"] == user_id) &
             (ratings_test["rating"] >= 3.5)
@@ -590,7 +590,7 @@ def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k
         if len(relevant) == 0:
             continue
 
-        # rekomendacje
+        # recommendations
         recs = model_func(
             user_id=user_id,
             ratings=ratings_train,
@@ -698,7 +698,6 @@ def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, use
 #=================================================== COLD START =======================================================
 #======================================================================================================================
 def cold_start_flow(
-    movies_to_rate,
     ratings,
     movies,
     movies_plus_tags,
@@ -708,23 +707,117 @@ def cold_start_flow(
     ratings_path
 ):
     """
-    Interactive cold-start system for a new user.
+    Performs an interactive cold-start procedure for a new user and generates
+    movie recommendations based on the provided ratings.
+
+    The function presents a predefined list of popular movies and asks the user
+    to rate each movie on a scale from 0 to 5 (including half-point ratings).
+    Based on the collected ratings, a new user profile is created and stored
+    in the ratings dataset.
+
+    The workflow consists of the following steps:
+
+    1. Display a list of predefined movies and collect user ratings.
+    2. Validate the entered ratings and allow one retry for invalid input.
+    3. Create a new unique user identifier.
+    4. Save all non-zero ratings to the ratings dataset.
+    5. Generate content-based recommendations for each positively rated movie
+       (rating >= 3.5).
+    6. If the user does not provide any positive ratings, use a predefined
+       fallback set of popular movies.
+    7. Generate personalized recommendations using the user's complete rating
+       profile through the user-based content recommendation model.
+
+    Parameters
+    ----------
+    ratings : pandas.DataFrame
+        Ratings dataset containing at least the following columns:
+        'userId', 'movieId', 'rating', and 'timestamp'.
+
+    movies : pandas.DataFrame
+        Movie metadata containing at least 'movieId' and 'title' columns.
+
+    movies_plus_tags : pandas.DataFrame
+        Movie dataset enriched with tags and content features used by the
+        recommendation system.
+
+    matrix : scipy.sparse.csr_matrix
+        TF-IDF feature matrix generated from movie genres and tags.
+
+    content_based_recommendations : callable
+        Function used to generate recommendations similar to a given movie.
+        Expected signature:
+
+            content_based_recommendations(
+                movie_id,
+                df,
+                matrix,
+                top_n=10
+            )
+
+    user_content_recommendations : callable
+        Function used to generate personalized recommendations based on a
+        user's rating history. Expected signature:
+
+            user_content_recommendations(
+                user_id,
+                ratings,
+                movies,
+                matrix,
+                top_n=10
+            )
+
+    ratings_path : str or pathlib.Path
+        Path to the ratings CSV file where the new user's ratings will be
+        stored.
+
+    Returns
+    -------
+    int
+        Identifier of the newly created user.
+
+    Notes
+    -----
+    Only ratings greater than zero are stored in the ratings dataset.
+
+    Ratings equal to or greater than 3.5 are treated as positive preferences
+    and are used to generate content-based recommendations.
+
+    If the user does not provide any positive ratings, a predefined set of
+    popular movies is used to initialize the recommendation process.
     """
+    
+    movies_to_rate = {
+        1: "Toy Story (1995)",
+        2: "Jumanji (1995)",
+        10: "GoldenEye (1995)",
+        318: "Shawshank Redemption, The (1994)",
+        296: "Pulp Fiction (1994)",
+        356: "Forrest Gump (1994)",
+        527: "Schindler's List (1993)",
+        3147: "Green Mile, The (1999)",
+        480: "Jurassic Park (1993)",
+        1721: "Titanic (1997)",
+        2571: "Matrix, The (1999)",
+        72998: "Avatar (2009)",
+        3578: "Gladiator (2000)",
+        130219: "The Dark Knight (2011)"
+    }
 
     allowed_ratings = [0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
 
     print("""
-Did you like this movie?
+    Did you like this movie?
 
-1 = strongly dislike
-2 = dislike
-3 = neutral
-4 = like
-5 = strongly like
-0 = not seen
+    1 = strongly dislike
+    2 = dislike
+    3 = neutral
+    4 = like
+    5 = strongly like
+    0 = not seen
 
-You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
-""")
+    You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
+    """)
 
     ratings_cold_start = {}
 
@@ -746,7 +839,7 @@ You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
                 attempts += 1
 
                 if attempts >= 2:
-                    print("Widzę że nie potrafisz się zdecydować, w takim razie przechodzimy dalej...")
+                    print("I see you can't make up your mind, so let's move on...")
                     break
 
                 print("Invalid rating. Try again (0,1,1.5,...,5)")
@@ -756,7 +849,7 @@ You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
                 print("Invalid input. Try again.")
 
                 if attempts >= 2:
-                    print("Widzę że nie potrafisz się zdecydować, w takim razie przechodzimy dalej...")
+                    print("I see you can't make up your mind, so let's move on...")
                     break
 
     # -------------------------
@@ -804,17 +897,17 @@ You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
 
     if len(liked_movies) == 0:
 
-        print("\nUser gave no meaningful ratings → fallback popular movies")
+        print("\nUser gave no meaningful ratings => fallback popular movies")
 
-        liked_movies = [1, 2, 3, 4, 5]
+        liked_movies = [6377, 59315, 49272, 2959, 4995]
 
-        # ręczne fallback ratings
+        # fallback ratings
         ratings_cold_start.update({
-            1: 5,
-            2: 4.5,
-            3: 4,
-            4: 4.5,
-            5: 3.5
+            6377: 5, #Finding Nemo (2003)
+            59315: 4.5, #Iron Man (2008)
+            49272: 4, #Casino Royale (2006)
+            2959: 4.5, #Fight Club (1999)
+            4995: 3.5 #Beautiful Mind, A (2001)
         })
 
     print("\n--- CONTENT-BASED RECOMMENDATIONS ---\n")
@@ -823,7 +916,7 @@ You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
 
         title = movies[movies["movieId"] == mid]["title"].values[0]
 
-        print(f"Skoro lubisz film: {title}")
+        print(f"Since you like the movie: {title}")
 
         recs = content_based_recommendations(
             movie_id=mid,
