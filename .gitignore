@@ -2,6 +2,9 @@
 data/raw/
 data/processed/
 
+# venv (virtual environment)
+.venv/
+
 # Python
 __pycache__/
 *.pyc

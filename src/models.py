@@ -16,6 +16,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize, MinMaxScaler
 # from tqdm.notebook import tqdm
 from tqdm import tqdm
+import time
+import os
 
 
 # ======= Models =======
@@ -691,3 +693,162 @@ def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, use
             break
         
     return movies.iloc[recommendations_idx][["movieId", "title"]]
+
+#======================================================================================================================
+#=================================================== COLD START =======================================================
+#======================================================================================================================
+def cold_start_flow(
+    movies_to_rate,
+    ratings,
+    movies,
+    movies_plus_tags,
+    matrix,
+    content_based_recommendations,
+    user_content_recommendations,
+    ratings_path
+):
+    """
+    Interactive cold-start system for a new user.
+    """
+
+    allowed_ratings = [0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+
+    print("""
+Did you like this movie?
+
+1 = strongly dislike
+2 = dislike
+3 = neutral
+4 = like
+5 = strongly like
+0 = not seen
+
+You can also use half ratings (e.g. 1.5, 2.5, 3.5, 4.5)
+""")
+
+    ratings_cold_start = {}
+
+    # -------------------------
+    # 1. COLLECT RATINGS
+    # -------------------------
+    for movie_id, title in movies_to_rate.items():
+
+        attempts = 0
+
+        while True:
+            try:
+                rating = float(input(f"Rate '{title}' (0-5): "))
+
+                if rating in allowed_ratings:
+                    ratings_cold_start[movie_id] = rating
+                    break
+
+                attempts += 1
+
+                if attempts >= 2:
+                    print("Widzę że nie potrafisz się zdecydować, w takim razie przechodzimy dalej...")
+                    break
+
+                print("Invalid rating. Try again (0,1,1.5,...,5)")
+
+            except:
+                attempts += 1
+                print("Invalid input. Try again.")
+
+                if attempts >= 2:
+                    print("Widzę że nie potrafisz się zdecydować, w takim razie przechodzimy dalej...")
+                    break
+
+    # -------------------------
+    # 2. CREATE NEW USER ID
+    # -------------------------
+    target_user_id = ratings["userId"].max() + 1
+
+    # -------------------------
+    # 3. SAVE RATINGS
+    # -------------------------
+    new_rows = []
+
+    timestamp = int(time.time())
+
+    for movie_id, rating in ratings_cold_start.items():
+        if rating != 0:
+            new_rows.append({
+                "userId": target_user_id,
+                "movieId": movie_id,
+                "rating": rating,
+                "timestamp": timestamp
+            })
+
+    # append to CSV
+    if len(new_rows) > 0:
+
+        new_df = pd.DataFrame(new_rows)
+
+        if os.path.exists(ratings_path):
+            existing = pd.read_csv(ratings_path)
+            updated = pd.concat([existing, new_df], ignore_index=True)
+        else:
+            updated = new_df
+
+        updated.to_csv(ratings_path, index=False)
+
+        print(f"\nSaved {len(new_rows)} ratings for new user.")
+
+    # -------------------------
+    # 4. CONTENT-BASED RECOMMENDATIONS
+    # -------------------------
+    liked_movies = [
+        mid for mid, r in ratings_cold_start.items() if r >= 3.5
+    ]
+
+    if len(liked_movies) == 0:
+
+        print("\nUser gave no meaningful ratings → fallback popular movies")
+
+        liked_movies = [1, 2, 3, 4, 5]
+
+        # ręczne fallback ratings
+        ratings_cold_start.update({
+            1: 5,
+            2: 4.5,
+            3: 4,
+            4: 4.5,
+            5: 3.5
+        })
+
+    print("\n--- CONTENT-BASED RECOMMENDATIONS ---\n")
+
+    for mid in liked_movies:
+
+        title = movies[movies["movieId"] == mid]["title"].values[0]
+
+        print(f"Skoro lubisz film: {title}")
+
+        recs = content_based_recommendations(
+            movie_id=mid,
+            df=movies_plus_tags,
+            matrix=matrix,
+            top_n=10
+        )
+
+        print(recs)
+        print("\n" + "-" * 50 + "\n")
+
+    # -------------------------
+    # 5. USER-BASED RECOMMENDATIONS
+    # -------------------------
+    print("\n--- USER-BASED RECOMMENDATIONS ---\n")
+    ratings = pd.read_csv(ratings_path)
+
+    recs_user = user_content_recommendations(
+        user_id=target_user_id,
+        ratings=ratings,
+        movies=movies_plus_tags,
+        matrix=matrix,
+        top_n=10
+    )
+
+    print(recs_user)
+
+    return target_user_id
