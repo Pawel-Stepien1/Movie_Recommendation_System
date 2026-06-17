@@ -4,9 +4,10 @@
 
 from data_loader import read_csv_files, cleaning_raw_data
 from features import merge_movies_with_tags, build_content_matrix, prepare_cf_data, cf_to_numpy
-from models import MF_SGD, hybrid_model_recommendations
+from models import MF_SGD, content_based_scores, get_cf_scores, hybrid_model_recommendations
 from explainability import RecommenderExplainer
 import pandas as pd
+import numpy as np
 
 #======================================================================================================================
 #============================================== PREPARING THE DATA ====================================================
@@ -31,51 +32,54 @@ sgd_model.fit(train_users, train_items, train_ratings, n_users, n_items)
 # =========================================== EXPLAINABILITY CLASS CALL ================================================
 # ======================================================================================================================
 
+models_to_test = ["cb", "cf", "hybrid"]
+
 # we select random user 
 target_user = list(user_map.keys())[0]
 
-# we choose the best movie for a user
-chosen_recommendation = hybrid_model_recommendations(
-    user_id=target_user,
-    ratings=train_df,
-    movies=merged_movies,
-    matrix=matrix,
-    cf_model=sgd_model,
-    user_map=user_map,
-    movie_map=movie_map,
-    alpha=0.4,
-    top_n=5
-)
+for model in models_to_test:
+    print(f"\n Model {model.upper()} analysis:")
 
-# we choose the movie rated as the best (number 1) in recommendation ranking;
-# the code is adapted to whether we use a DataFrame or a list
-if isinstance(chosen_recommendation, pd.DataFrame):
-    best_engine_movie = chosen_recommendation.iloc[0]['title']
-else:
-    # in case of a list
-    best_engine_movie = chosen_recommendation[0]
+    if model == "cb":
+        cb_recommendation = content_based_scores(target_user, train_df, merged_movies, matrix)
+        best_movie = merged_movies.iloc[np.argmax(cb_recommendation)]['title']
+    elif model == "cf":
+        cf_recommendation = get_cf_scores(sgd_model, target_user, user_map, movie_map, merged_movies)
+        best_movie = merged_movies.iloc[np.argmax(cf_recommendation)]['title']
+    else:
+        hybrid_recommendation = hybrid_model_recommendations(user_id=target_user, ratings=train_df,movies=merged_movies, matrix=matrix, cf_model=sgd_model, user_map=user_map, movie_map=movie_map, alpha=0.4, top_n=5)
 
-print(f"\nEngine recommends {best_engine_movie} for user {target_user}.")
+        # we choose the movie rated as the best (number 1) in recommendation ranking;
+        # the code is adapted to whether we use a DataFrame or a list
+        if isinstance(hybrid_recommendation, pd.DataFrame):
+            best_movie = hybrid_recommendation.iloc[0]['title']
+        else:
+            # in case of a list
+            best_movie = hybrid_recommendation[0]
 
-# we initialize the explainer
-explainer = RecommenderExplainer(
-    user_id=target_user,
-    ratings=train_df,
-    movies=merged_movies,
-    matrix=matrix,
-    vectorizer=vectorizer,
-    cf_model=sgd_model,
-    user_map=user_map,
-    movie_map=movie_map,
-    alpha=0.4 # weight of Collaborative Filtering model
-)
+    print(f"\nEngine {model.upper()} recommends {best_movie} for user {target_user}.")
 
-# we match the interpretable surrogate model
-explainer.prepare_surrogate(sample_size=400)
+    # we initialize the explainer
+    
+    explainer = RecommenderExplainer(
+        user_id=target_user,
+        ratings=train_df,
+        movies=merged_movies,
+        matrix=matrix,
+        vectorizer=vectorizer,
+        cf_model=sgd_model,
+        user_map=user_map,
+        movie_map=movie_map,
+        alpha=0.4,
+        mode=model
+    )
 
-# we create beeswarm plot (user preference profile)
-# the plots explains which words/genres raise the user's rating and which words/genres lower the user's rating
-explainer.plot_global_explanation(max_display=12)
+    # we match the interpretable surrogate model
+    explainer.prepare_surrogate(sample_size=300)
 
-# we create waterfall plot (user preference profile)
-explainer.explain_specific_movie(best_engine_movie)
+    # we create beeswarm plot (user preference profile)
+    # the plots explains which words/genres raise the user's rating and which words/genres lower the user's rating
+    explainer.plot_global_explanation(max_display=10)
+
+    # we create waterfall plot (user preference profile)
+    explainer.explain_specific_movie(best_movie)

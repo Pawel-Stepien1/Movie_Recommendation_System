@@ -20,7 +20,7 @@ class RecommenderExplainer:
     The class explains hybrid recommendations using Surrogate Model and SHAP library.
     It chooses only movie genres and top 100 tags in order to optimize the performance.
     """
-    def __init__(self, user_id, ratings, movies, matrix, vectorizer, cf_model, user_map, movie_map, alpha=0.5):
+    def __init__(self, user_id, ratings, movies, matrix, vectorizer, cf_model, user_map, movie_map, alpha=0.5, mode='hybrid'):
         self.user_id = user_id
         self.ratings = ratings
         self.movies = movies.reset_index(drop=True)
@@ -30,6 +30,8 @@ class RecommenderExplainer:
         self.user_map = user_map
         self.movie_map = movie_map
         self.alpha = alpha
+        self.mode = mode
+        self.mode_name = {"cb" : "Content-Based", "cf" : "Collaborative Filtering", "hybrid" : "Hybrid"}.get(mode, "Model")
         
         self.surrogate_model = None
         self.shap_values = None
@@ -40,20 +42,25 @@ class RecommenderExplainer:
         self.selected_indices = None
         self.selected_feature_names = None
 
-    def _get_hybrid_scores(self):
+    def _get_scores(self):
         """
-        The function calculates the hybrid results for all movies.
+        Generelized method to get results of different models (Content-based, Collaborative Filtering, Hybrid).
         """
         cb_scores = content_based_scores(self.user_id, self.ratings, self.movies, self.matrix)
-        cf_scores_results = get_cf_scores(self.cf_model, self.user_id, self.user_map, self.movie_map, self.movies)
+        cf_scores = get_cf_scores(self.cf_model, self.user_id, self.user_map, self.movie_map, self.movies)
         
-        if cf_scores_results is None:
+        if self.mode == 'cb':
             return MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
         
-        cb_scores_scaled = MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
-        cf_scores_scaled = MinMaxScaler().fit_transform(cf_scores_results.reshape(-1, 1)).flatten()
+        elif self.mode == 'cf':
+            if cf_scores is None: raise ValueError("CF model not available")
+            return MinMaxScaler().fit_transform(cf_scores.reshape(-1, 1)).flatten()
         
-        return self.alpha * cf_scores_scaled + (1 - self.alpha) * cb_scores_scaled
+        else: # Tryb hybrydowy (domyślny)
+            if cf_scores is None: return MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
+            cb_scaled = MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
+            cf_scaled = MinMaxScaler().fit_transform(cf_scores.reshape(-1, 1)).flatten()
+            return self.alpha * cf_scaled + (1 - self.alpha) * cb_scaled
 
     def _select_top_features(self):
         """
@@ -105,16 +112,16 @@ class RecommenderExplainer:
         if self.selected_indices is None:
             self._select_top_features()
             
-        hybrid_scores = self._get_hybrid_scores()
+        used_scored = self._get_scores()
         
         # we select the best rated movies + random sample in order to balance the training
-        top_indices = np.argsort(hybrid_scores)[::-1][:50]
+        top_indices = np.argsort(used_scored)[::-1][:50]
         random_indices = np.random.choice(np.arange(len(self.movies)), size=min(sample_size, len(self.movies)), replace=False)
         self.sample_indices = np.unique(np.concatenate([top_indices, random_indices]))
         
         # we create feature matrix using only selected columns (genres and top 100 tags)
         X_sample = self.matrix[self.sample_indices][:, self.selected_indices].toarray()
-        y_sample = hybrid_scores[self.sample_indices]
+        y_sample = used_scored[self.sample_indices]
         
         self.X_df = pd.DataFrame(X_sample, columns=self.selected_feature_names)
         
@@ -138,11 +145,10 @@ class RecommenderExplainer:
         """
         The function creates beeswarm plots for a given user.
         """
-        if self.shap_values is None:
-            raise ValueError("Start the prepare_surrogate() method first!")
-            
+        if self.shap_values is None: raise ValueError("Start prepare_surrogate() first!")
         plt.figure(figsize=(10, 6))
-        plt.title(f"User {self.user_id} preference profile (genres + top 100 tags)", fontsize=14, pad=20)
+        # Użycie self.mode_name w tytule
+        plt.title(f"User {self.user_id} preference profile (model: {self.mode_name})", fontsize=14, pad=20)
         shap.plots.beeswarm(self.shap_values, max_display=max_display, show=False)
         plt.tight_layout()
         plt.show()
@@ -171,7 +177,7 @@ class RecommenderExplainer:
                 movie_shap = explainer(movie_df)
                 
                 plt.figure(figsize=(12, 5))
-                plt.title(f"Dlaczego polecamy film: {actual_title}?", fontsize=12, pad=20)
+                plt.title(f"Why {actual_title} is recommended? (model: {self.mode_name})", fontsize=12, pad=20)
                 shap.plots.waterfall(movie_shap[0], max_display=10, show=False)
                 plt.tight_layout()
                 plt.show()
@@ -179,7 +185,7 @@ class RecommenderExplainer:
                 sample_idx = np.where(self.sample_indices == orig_idx)[0][0]
                 
                 plt.figure(figsize=(12, 5))
-                plt.title(f"Dlaczego polecamy film: {actual_title}?", fontsize=12, pad=20)
+                plt.title(f"Why {actual_title} is recommended? (model: {self.mode_name})", fontsize=12, pad=20)
                 shap.plots.waterfall(self.shap_values[sample_idx], max_display=10, show=False)
                 plt.tight_layout()
                 plt.show()
