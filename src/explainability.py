@@ -17,10 +17,24 @@ from models import content_based_scores, get_cf_scores
 
 class RecommenderExplainer:
     """
-    The class explains hybrid recommendations using Surrogate Model and SHAP library.
+    The class explains hybrid recommendations using Random Forest surrogate model and SHAP library.
     It chooses only movie genres and top 100 tags in order to optimize the performance.
     """
     def __init__(self, user_id, ratings, movies, matrix, vectorizer, cf_model, user_map, movie_map, alpha=0.5, mode='hybrid'):
+        """
+        The method initializes the RecommenderExplainer.
+        
+        PARAMETERS:
+        - user_id: ID of the user to explain;
+        - ratings: a dataframe with user's ratings;
+        - movies: a dataframe with movie metadata;
+        - matrix: sparse matrix of movie features;
+        - vectorizer: TfidVectorizer used to build the content matrix;
+        - cf_model: trained CF (Collaborative Filtering) model;
+        - user_map: mapping of user's ID;
+        - alpha: the weight of hybrid model (0 < alpha < 1);
+        - mode: model to choose, "cf" (Collaborative Filtering), "cb" (Content-Based) or "hybrid" (Hybrid).
+        """
         self.user_id = user_id
         self.ratings = ratings
         self.movies = movies.reset_index(drop=True)
@@ -31,6 +45,8 @@ class RecommenderExplainer:
         self.movie_map = movie_map
         self.alpha = alpha
         self.mode = mode
+
+        # we map models to names that will be used on plots
         self.mode_name = {"cb" : "Content-Based", "cf" : "Collaborative Filtering", "hybrid" : "Hybrid"}.get(mode, "Model")
         
         self.surrogate_model = None
@@ -44,19 +60,27 @@ class RecommenderExplainer:
 
     def _get_scores(self):
         """
-        Generelized method to get results of different models (Content-based, Collaborative Filtering, Hybrid).
+        Generelized method to retrieve results of different models (Content-based, Collaborative Filtering, Hybrid). The method normalizes scores based on the selected mode.
+
+        PARAMETERS: None.
+        
+        RETURNS: 
+        - NumPy array of normalized scores.
         """
         cb_scores = content_based_scores(self.user_id, self.ratings, self.movies, self.matrix)
         cf_scores = get_cf_scores(self.cf_model, self.user_id, self.user_map, self.movie_map, self.movies)
         
+        # choosing Content-Based model
         if self.mode == 'cb':
             return MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
         
+        # choosing Collaborative Filtering model
         elif self.mode == 'cf':
             if cf_scores is None: raise ValueError("CF model not available")
             return MinMaxScaler().fit_transform(cf_scores.reshape(-1, 1)).flatten()
         
-        else: # Tryb hybrydowy (domyślny)
+        # choosing Hybrid model (default)
+        else: 
             if cf_scores is None: return MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
             cb_scaled = MinMaxScaler().fit_transform(cb_scores.reshape(-1, 1)).flatten()
             cf_scaled = MinMaxScaler().fit_transform(cf_scores.reshape(-1, 1)).flatten()
@@ -64,8 +88,11 @@ class RecommenderExplainer:
 
     def _select_top_features(self):
         """
-        The function identifies genres' indices and selects top 100 tags. 
-        It ignores noise (numbers, stop-words or technical tags etc.). 
+        The method identifies genres' indices and selects top 100 tags. The method ignores noise (numbers, stop-words or technical tags etc.).
+
+        PARAMETERS: None.
+
+        RETURNS: None.
         """
         # we define tokens corresponding to movies' genres from MovieLens
         genres_list = {
@@ -106,7 +133,12 @@ class RecommenderExplainer:
 
     def prepare_surrogate(self, sample_size=300):
         """
-        The function creates surrogate Random Forest model.
+        The method trains Random Forest surrogate model to mimic the complex recommendation engine.
+
+        PARAMETERS: 
+        - sample_size: number of samples used to train the surrogate Random Forest model.
+
+        RETURNS: None.
         """
         # we select the data
         if self.selected_indices is None:
@@ -129,21 +161,27 @@ class RecommenderExplainer:
         self.surrogate_model = RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42)
         self.surrogate_model.fit(self.X_df, y_sample)
         
-        # we evaluate the exlanation with r2 metrics
+        # we evaluate the explanation with r2 metrics
         y_pred = self.surrogate_model.predict(self.X_df)
         r2 = r2_score(y_sample, y_pred)
         
+        # we print the results retrieved
         print(f"Explainability metrics for User {self.user_id}")
         print(f"Analysed features: {len(self.selected_feature_names)} (all genres + top 100 tags)")
         print(f"Surrogate model credibility (R^2 Score): {r2:.4f}")
         
-        # we calculate SHAP value
+        # we calculate SHAP value for global (user's preference) and local (recommendation explanation) explanation
         explainer = shap.TreeExplainer(self.surrogate_model)
         self.shap_values = explainer(self.X_df)
 
     def plot_global_explanation(self, max_display=15):
         """
-        The function creates beeswarm plots for a given user.
+        The method creates beeswarm plots for a given user and shows the plot.
+
+        PARAMETERS: 
+        - max_display: maximum number of features presented on the beeswarm plot.
+        
+        RETURNS: None.
         """
         if self.shap_values is None: raise ValueError("Start prepare_surrogate() first!")
         plt.figure(figsize=(10, 6))
@@ -155,7 +193,13 @@ class RecommenderExplainer:
 
     def explain_specific_movie(self, movie_title):
             """
-            The function explains why a specific movie was choses using waterfall plots.
+            The method creates waterfall plot explaining why a specific movie was recommended to the user and shows the plot.
+
+            PARAMETERS:
+            - movie_title: database title of the recommended movie.
+
+            RETURNS: None.
+
             """
             if self.shap_values is None:
                 raise ValueError("Start the prepare_surrogate() method first!")

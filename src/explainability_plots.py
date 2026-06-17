@@ -40,12 +40,16 @@ target_user = list(user_map.keys())[0]
 for model in models_to_test:
     print(f"\n Model {model.upper()} analysis:")
 
+    # we generate recommendations for each model
+    # Content-Based model
     if model == "cb":
         cb_recommendation = content_based_scores(target_user, train_df, merged_movies, matrix)
         best_movie = merged_movies.iloc[np.argmax(cb_recommendation)]['title']
+    # Collaborative Filtering model
     elif model == "cf":
         cf_recommendation = get_cf_scores(sgd_model, target_user, user_map, movie_map, merged_movies)
         best_movie = merged_movies.iloc[np.argmax(cf_recommendation)]['title']
+    # Hybrid model
     else:
         hybrid_recommendation = hybrid_model_recommendations(user_id=target_user, ratings=train_df,movies=merged_movies, matrix=matrix, cf_model=sgd_model, user_map=user_map, movie_map=movie_map, alpha=0.4, top_n=5)
 
@@ -60,7 +64,6 @@ for model in models_to_test:
     print(f"\nEngine {model.upper()} recommends {best_movie} for user {target_user}.")
 
     # we initialize the explainer
-    
     explainer = RecommenderExplainer(
         user_id=target_user,
         ratings=train_df,
