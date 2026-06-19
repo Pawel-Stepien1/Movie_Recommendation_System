@@ -11,31 +11,6 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 
 #======================================================================================================================
-#==================================================== PREPROCESSING ==================================================#
-#======================================================================================================================
-def extract_release_year(df):
-    """
-    Extracts the release year from the 'title' column and creates a new column 'release_year'.
-    
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame containing a 'title' column with movie titles in the format "Movie Title (Year)".
-    
-    Returns
-    -------
-    pandas.DataFrame
-        A new DataFrame with the original columns plus:
-        - 'release_year': An integer column containing the extracted release year.
-        - 'title_clean': A string column containing the movie title without the release year.
-    """
-    df = df.copy()
-    df["release_year"] = (df["title"].str.extract(r"\((\d{4})\)").astype("Int64"))
-    df["title_clean"] = (df["title"].str.replace(r"\s*\(\d{4}\)$", "", regex=True))
-
-    return df
-
-#======================================================================================================================
 #=================================================== VISUALISATION ===================================================#
 #======================================================================================================================
     
