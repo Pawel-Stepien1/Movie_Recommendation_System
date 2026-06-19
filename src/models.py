@@ -606,7 +606,9 @@ def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k
 
     return sum(scores) / len(scores)
 
-#============================================== Hybrid model  ===========================================#
+#======================================================================================================================
+#===================================================== Hybrid model  ==================================================
+#======================================================================================================================
 
 def content_based_scores(user_id, ratings, movies, matrix, min_rating=3.5):
 
@@ -693,6 +695,24 @@ def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, use
             break
         
     return movies.iloc[recommendations_idx][["movieId", "title"]]
+
+def make_hybrid_evaluator(cf_model, user_map, movie_map, alpha):
+    
+    def hybrid_for_eval(user_id, ratings, movies, matrix, top_n):
+
+        return hybrid_model_recommendations(
+            user_id=user_id,
+            ratings=ratings,
+            movies=movies,
+            matrix=matrix,
+            cf_model=cf_model,
+            user_map=user_map,
+            movie_map=movie_map,
+            alpha=alpha,
+            top_n=top_n
+        )
+        
+    return hybrid_for_eval
 
 #======================================================================================================================
 #=================================================== COLD START =======================================================
