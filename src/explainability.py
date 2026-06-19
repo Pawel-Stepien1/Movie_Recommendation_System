@@ -268,9 +268,10 @@ class RecommenderExplainer:
         if feature_name not in self.selected_feature_names:
             raise ValueError(f"Feature '{feature_name}' not found in analyzed features.")
             
-        plt.figure(figsize=(8, 5))
-        plt.title(f"SHAP dependence plot for '{feature_name}' (model: {self.mode_name})", fontsize=12, pad=15)
         shap.plots.scatter(self.shap_values[:, feature_name], color=self.shap_values, show=False)
+        plt.title(f"SHAP Dependence Plot for '{feature_name}' (model: {self.mode_name})", fontsize=12, pad=15)
+        plt.gcf().set_size_inches(8, 5) # Bezpieczne wymuszenie rozmiaru (8x5 cali) na aktywnym wykresie
+        
         plt.tight_layout()
         plt.show()
 
