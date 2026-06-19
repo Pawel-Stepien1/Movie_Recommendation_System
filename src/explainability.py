@@ -97,8 +97,8 @@ class RecommenderExplainer:
         # we define tokens corresponding to movies' genres from MovieLens
         genres_list = {
             'action', 'adventure', 'animation', 'children', 'comedy', 'crime', 
-            'documentary', 'drama', 'fantasy', 'film', 'noir', 'horror', 
-            'musical', 'mystery', 'romance', 'sci', 'fi', 'thriller', 'war', 'western', 'imax'
+            'documentary', 'drama', 'fantasy', 'film-noir', 'horror', 
+            'musical', 'mystery', 'romance', 'sci-fi', 'thriller', 'war', 'western', 'imax'
         }
         
         feature_names = np.array(self.vectorizer.get_feature_names_out())
@@ -110,7 +110,7 @@ class RecommenderExplainer:
         tag_indices = [i for i, name in enumerate(feature_names) if name not in genres_list]
         
         # dictionary storing junk words from MovieLens database
-        junk_words = {'owned', 'dvd', 'on', 'avi', 'seen', 'buy', 'queue', 'netflix', 'imdb', 'top', 'see'}
+        junk_words = {'owned', 'dvd', 'on', 'avi', 'seen', 'buy', 'queue', 'netflix', 'imdb', 'top', 'see', 'the'}
         
         valid_tag_indices = []
         for idx in tag_indices:
