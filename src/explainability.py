@@ -233,3 +233,127 @@ class RecommenderExplainer:
                 shap.plots.waterfall(self.shap_values[sample_idx], max_display=10, show=False)
                 plt.tight_layout()
                 plt.show()
+
+    def plot_summary_importance(self, max_display=15):
+            """
+            The method creates a SHAP summary bar plot showing global feature importance.
+
+            PARAMETERS:
+            - max_display: maximum number of features presented on the bar plot.
+            
+            RETURNS: None.
+            """
+            if self.shap_values is None: 
+                raise ValueError("Start the prepare_surrogate() method first!")
+                
+            plt.figure(figsize=(10, 6))
+            plt.title(f"Global feature importance - summary plot (model: {self.mode_name})", fontsize=14, pad=20)
+            shap.plots.bar(self.shap_values, max_display=max_display, show=False)
+            plt.tight_layout()
+            plt.show()
+
+    def plot_dependence(self, feature_name):
+        """
+        The method creates a SHAP dependence plot to visualize how a single feature 
+        affects predictions and its interaction with other automatically selected features.
+
+        PARAMETERS:
+        - feature_name: string name of the feature to analyze (e.g., 'genres_Drama' or 'atmospheric').
+        
+        RETURNS: None.
+        """
+        if self.shap_values is None: 
+            raise ValueError("Start the prepare_surrogate() method first!")
+            
+        if feature_name not in self.selected_feature_names:
+            raise ValueError(f"Feature '{feature_name}' not found in analyzed features.")
+            
+        plt.figure(figsize=(8, 5))
+        plt.title(f"SHAP dependence plot for '{feature_name}' (model: {self.mode_name})", fontsize=12, pad=15)
+        shap.plots.scatter(self.shap_values[:, feature_name], color=self.shap_values, show=False)
+        plt.tight_layout()
+        plt.show()
+
+    def explain_counterfactual(self, movie_title, top_n=5):
+        """
+        The method performs a "What-If" counterfactual analysis for a specific movie.
+        It simulates toggling the movie's features (adding missing tags or removing existing ones) 
+        to show how the recommendation score would change.
+
+        PARAMETERS:
+        - movie_title: database title of the movie.
+        - top_n: number of top counterfactual impacts to display.
+        
+        RETURNS: None.
+        """
+        if self.surrogate_model is None:
+            raise ValueError("Start the prepare_surrogate() method first!")
+            
+        movie_row = self.movies[self.movies['title'].str.contains(movie_title, case=False, na=False, regex=False)]
+        if movie_row.empty:
+            print(f"'{movie_title}' was not found!")
+            return
+            
+        orig_idx = movie_row.index[0]
+        actual_title = movie_row.iloc[0]['title']
+        
+        # Extract original feature vector for this movie
+        X_movie = self.matrix[orig_idx][:, self.selected_indices].toarray()
+        movie_df = pd.DataFrame(X_movie, columns=self.selected_feature_names)
+        
+        # Get baseline prediction from surrogate model
+        orig_pred = self.surrogate_model.predict(movie_df)[0]
+        
+        print(f"\n" + "="*70)
+        print(f"  Counterfactual analysis for: '{actual_title}'")
+        print(f"  Original recommendation evaluation (surogate model): {orig_pred:.4f}")
+        print("="*70)
+        
+        counterfactuals = []
+        
+        # Test what happens if we toggle each feature individually
+        for col in self.selected_feature_names:
+            current_val = movie_df.loc[0, col]
+            perturbed_df = movie_df.copy()
+            
+            if current_val > 0:
+                # feature is present. What if it was ABSENT?
+                perturbed_df.loc[0, col] = 0.0
+                new_pred = self.surrogate_model.predict(perturbed_df)[0]
+                diff = new_pred - orig_pred
+                counterfactuals.append({
+                    'feature': col,
+                    'action': 'REMOVING FEATURE',
+                    'diff': diff,
+                    'new_score': new_pred
+                })
+            else:
+                # feature is absent. What if it was PRESENT? (Simulated as TF-IDF 1.0)
+                perturbed_df.loc[0, col] = 1.0
+                new_pred = self.surrogate_model.predict(perturbed_df)[0]
+                diff = new_pred - orig_pred
+                counterfactuals.append({
+                    'feature': col,
+                    'action': 'ADDING FEATURE',
+                    'diff': diff,
+                    'new_score': new_pred
+                })
+                
+        cf_df = pd.DataFrame(counterfactuals)
+        
+        # what would lower the recommendation if it was absent?
+        print(f"\n[CRUCIAL FEATURES] Which of the following characteristics would most LOWER the recommendation?:")
+        neg_effects = cf_df[cf_df['diff'] < 0].sort_values(by='diff').head(top_n)
+        if neg_effects.empty:
+            print(" - No traits with negative effects after removal.")
+        for _, row in neg_effects.iterrows():
+            print(f" - If this movie LOST feature '{row['feature']}': The rating is lower by: {row['diff']:.4f} -> New result: {row['new_score']:.4f}")
+            
+        # what would raise the recommendation if it was present?
+        print(f"\nWhat can be added/changed to make user like the movie more?:")
+        pos_effects = cf_df[cf_df['diff'] > 0].sort_values(by='diff', ascending=False).head(top_n)
+        if pos_effects.empty:
+            print(" - This movie is already perfect for the user!")
+        for _, row in pos_effects.iterrows():
+            print(f" - If this movie HAD feature '{row['feature']}': The rating is higer by {row['diff']:.4f} -> New result: {row['new_score']:.4f}")
+        print("="*70)

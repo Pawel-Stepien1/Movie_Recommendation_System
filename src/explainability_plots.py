@@ -25,7 +25,7 @@ train_users, train_items, train_ratings, _, _, _ = cf_to_numpy(train_df, test_df
 # training CF model
 n_users = len(user_map)
 n_items = len(movie_map)
-sgd_model = MF_SGD(k=20, epochs=5)  # 5 epochs for testing
+sgd_model = MF_SGD(k=20, epochs=3)  # 5 epochs for testing
 sgd_model.fit(train_users, train_items, train_ratings, n_users, n_items)
 
 # ======================================================================================================================
@@ -86,3 +86,12 @@ for model in models_to_test:
 
     # we create waterfall plot (user preference profile)
     explainer.explain_specific_movie(best_movie)
+
+    # we create global feature importance plot (summary plot)
+    explainer.plot_summary_importance(max_display=10)
+
+    # we create dependence plot
+    explainer.plot_dependence('genres_Drama')
+    
+    # we initialize couterfactual analysis
+    explainer.explain_counterfactual(best_movie)    
