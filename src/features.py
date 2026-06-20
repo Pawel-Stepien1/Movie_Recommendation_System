@@ -177,40 +177,57 @@ def build_content_matrix(df):
 
 #=============================== Collaborative Filtering with Matrix Factorization  ============================#
 
-def prepare_cf_data(df_ratings, test_size=0.2, random_state=42):
+def prepare_cf_data(df_ratings, test_size=0.2, random_state=42, min_user_ratings=5):
     """
-    Prepare dataset: split and map IDs.
+    Prepare CF dataset using per-user split.
 
     Parameters
     ---------------
     df_ratings : pd.DataFrame
-    test_size : float
-    random_state : int
-
-    Returns
-    --------
-    train_df, test_df, user_map, movie_map
+        DataFrame containing user ratings with columns: 'userId', 'movieId', 'rating'
+    test_size : float, optional
+        Proportion of the dataset to include in the test split (default is 0.2).
+    random_state : int, optional
+        Random seed for reproducibility (default is 42).
+    min_user_ratings : int, optional
+        Minimum number of ratings a user must have to be included in the test set (default is 5).
     """
-    train_df, test_df = train_test_split(
-        df_ratings, test_size=test_size, random_state=random_state
-    )
 
-    user_ids = train_df['userId'].unique()
-    movie_ids = train_df['movieId'].unique()
+    train_list = []
+    test_list = []
 
-    user_map = {id: i for i, id in enumerate(user_ids)}
-    movie_map = {id: i for i, id in enumerate(movie_ids)}
+    for _, group in df_ratings.groupby("userId"):
 
-    train_df['u'] = train_df['userId'].map(user_map)
-    train_df['i'] = train_df['movieId'].map(movie_map)
+        if len(group) < min_user_ratings:
+            train_list.append(group)
+            continue
+
+        train, test = train_test_split(group, test_size=test_size, random_state=random_state)
+
+        train_list.append(train)
+        test_list.append(test)
+
+    train_df = pd.concat(train_list)
+    test_df = pd.concat(test_list)
+
+    user_ids = train_df["userId"].unique()
+    movie_ids = train_df["movieId"].unique()
+
+    user_map = {uid: idx for idx, uid in enumerate(user_ids)}
+
+    movie_map = {mid: idx for idx, mid in enumerate(movie_ids)}
+
+    train_df = train_df.copy()
+    train_df["u"] = train_df["userId"].map(user_map)
+    train_df["i"] = train_df["movieId"].map(movie_map)
 
     test_df = test_df[
-        test_df['userId'].isin(user_map) &
-        test_df['movieId'].isin(movie_map)
+        test_df["userId"].isin(user_map) &
+        test_df["movieId"].isin(movie_map)
     ].copy()
 
-    test_df['u'] = test_df['userId'].map(user_map)
-    test_df['i'] = test_df['movieId'].map(movie_map)
+    test_df["u"] = test_df["userId"].map(user_map)
+    test_df["i"] = test_df["movieId"].map(movie_map)
 
     return train_df, test_df, user_map, movie_map
 
