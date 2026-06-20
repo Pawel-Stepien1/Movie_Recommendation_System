@@ -282,7 +282,7 @@ class RecommenderExplainer:
         to show how the recommendation score would change.
 
         PARAMETERS:
-        - movie_title: database title of the movie.
+        - movie_title: database title of the movie;
         - top_n: number of top counterfactual impacts to display.
         
         RETURNS: None.
@@ -305,10 +305,10 @@ class RecommenderExplainer:
         # Get baseline prediction from surrogate model
         orig_pred = self.surrogate_model.predict(movie_df)[0]
         
-        print(f"\n" + "="*70)
+        print(f"========================================================")
         print(f"  Counterfactual analysis for: '{actual_title}'")
         print(f"  Original recommendation evaluation (surogate model): {orig_pred:.4f}")
-        print("="*70)
+        print("========================================================")
         
         counterfactuals = []
         
