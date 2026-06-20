@@ -73,7 +73,7 @@ for model in models_to_test:
         cf_model=sgd_model,
         user_map=user_map,
         movie_map=movie_map,
-        alpha=0.4,
+        alpha=0.5,
         mode=model
     )
 
