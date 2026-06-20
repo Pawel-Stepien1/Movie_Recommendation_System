@@ -62,7 +62,8 @@ my-ml-project/
 │   ├── features.py
 │   └── models.py
 ├── .gitignore
-├── mlflow/ 
+├── mlartifacts/ 
+├── mlflow.db
 ├── README.md
 └── requirements.txt
 ```
