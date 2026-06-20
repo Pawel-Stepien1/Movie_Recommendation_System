@@ -25,7 +25,7 @@ train_users, train_items, train_ratings, _, _, _ = cf_to_numpy(train_df, test_df
 # training CF model
 n_users = len(user_map)
 n_items = len(movie_map)
-sgd_model = MF_SGD(k=20, epochs=3)  # 5 epochs for testing
+sgd_model = MF_SGD(k=20, epochs=3)  # 3 epochs for testing
 sgd_model.fit(train_users, train_items, train_ratings, n_users, n_items)
 
 # ======================================================================================================================
