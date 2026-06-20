@@ -444,6 +444,54 @@ def content_based_recommendations(movie_id, df, matrix, top_n=10):
 #     return movies.iloc[indices][["movieId", "title"]]
 
 def user_content_recommendations(user_id, ratings, movies, matrix, top_n=10, min_rating=3.5):
+    """
+    Generates personalized movie recommendations using a content-based user profile.
+
+    The function builds a user preference profile based on the user's historical
+    ratings and uses it to compute similarity between the user and all available
+    movies.
+
+    Only positively rated movies (ratings >= min_rating) are used to construct
+    the user profile. Each selected movie contributes to the profile proportionally
+    to its rating, which allows stronger preferences to have higher influence.
+
+    The user profile is computed by aggregating TF-IDF feature vectors of liked
+    movies and normalizing the resulting vector. Cosine similarity is then used
+    to compare the user profile with all movie feature vectors.
+
+    The final recommendations exclude movies that the user has already rated.
+
+    Parameters
+    ----------
+    user_id : int
+        Identifier of the user for whom recommendations are generated.
+
+    ratings : pandas.DataFrame
+        Dataset containing user-movie interactions. Must include:
+        'userId', 'movieId', 'rating'.
+
+    movies : pandas.DataFrame
+        Movie metadata containing at least:
+        'movieId' and 'title'. The index must align with the feature matrix.
+
+    matrix : scipy.sparse matrix
+        TF-IDF feature matrix representing movies using genres and tags.
+
+    top_n : int, default=10
+        Number of recommended movies to return.
+
+    min_rating : float, default=3.5
+        Threshold for selecting positively rated movies used in user profile
+        construction.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing the top-N recommended movies with columns:
+        'movieId', 'title'.
+
+        Returns an empty DataFrame if the user has no positively rated movies.
+    """
 
     user_ratings = ratings[ratings["userId"] == user_id]
     liked = user_ratings[user_ratings["rating"] >= min_rating]
@@ -487,7 +535,33 @@ def user_content_recommendations(user_id, ratings, movies, matrix, top_n=10, min
 #=================================================== EVALUATION CONTENT BASED ====================================================
 def build_user_dicts(ratings_train, ratings_test):
     """
-    Precomputes user data for fast lookup.
+    Precomputes user-level data structures for efficient recommendation evaluation.
+
+    The function transforms the training and test rating datasets into dictionary
+    representations to speed up repeated user lookups during evaluation.
+
+    Specifically:
+    - The training set is grouped by userId, allowing fast access to all
+      interactions of a given user in the training data.
+    - The test set is filtered to include only positively rated items
+      (rating >= 3.5), which are treated as relevant items for evaluation.
+
+    Parameters
+    ----------
+    ratings_train : pandas.DataFrame
+        Training dataset containing user-movie interactions.
+
+    ratings_test : pandas.DataFrame
+        Test dataset containing user-movie interactions.
+
+    Returns
+    -------
+    train_dict : dict
+        Dictionary mapping userId → DataFrame of training interactions.
+
+    test_dict : dict
+        Dictionary mapping userId → list of relevant movieIds
+        (only movies with rating >= 3.5).
     """
 
     train_dict = {
@@ -504,12 +578,84 @@ def build_user_dicts(ratings_train, ratings_test):
 
 
 def hit_rate_at_k(recommended, relevant, k=10):
+    """
+    Computes Hit Rate@K evaluation metric.
+
+    Hit Rate@K measures whether at least one relevant item appears
+    in the top-K recommended items.
+
+    The metric returns 1 if there is at least one intersection between
+    the recommended and relevant items within the top K results,
+    otherwise returns 0.
+
+    Parameters
+    ----------
+    recommended : list or array-like
+        List of recommended movie IDs sorted by relevance.
+
+    relevant : list or set
+        List of relevant movie IDs (ground truth).
+
+    k : int, default=10
+        Number of top recommendations to consider.
+
+    Returns
+    -------
+    int
+        1 if at least one relevant item is in top-K recommendations,
+        otherwise 0.
+    """
     return int(len(set(recommended[:k]) & set(relevant)) > 0)
 
 
 def evaluate_hit_rate_fast(model_func, ratings_train, ratings_test, movies, matrix, k=10):
     """
-    Fast evaluation using Hit Rate@K with tqdm progress bar.
+    Evaluates a recommendation model using Hit Rate@K metric.
+
+    The function performs offline evaluation of a recommender system
+    by comparing predicted recommendations against held-out test data.
+
+    To improve efficiency, user-level data structures are precomputed
+    using `build_user_dicts`. The evaluation iterates over users and
+    computes whether at least one relevant item appears in the top-K
+    recommendations.
+
+    A progress bar (tqdm) is used to monitor evaluation progress.
+
+    Parameters
+    ----------
+    model_func : callable
+        Recommendation function that generates top-N recommendations
+        for a given user. Expected signature:
+
+            model_func(user_id, ratings, movies, matrix, top_n)
+
+    ratings_train : pandas.DataFrame
+        Training dataset used to build user profiles.
+
+    ratings_test : pandas.DataFrame
+        Test dataset used for evaluation.
+
+    movies : pandas.DataFrame
+        Movie metadata dataset.
+
+    matrix : scipy.sparse matrix
+        Feature matrix used by the recommendation model.
+
+    k : int, default=10
+        Number of top recommendations to evaluate.
+
+    Returns
+    -------
+    float
+        Average Hit Rate@K score across all evaluated users.
+
+    Notes
+    -----
+    - Users without relevant test items are skipped.
+    - The evaluation assumes implicit binary relevance
+      (rating >= 3.5 is considered positive).
+    - The metric evaluates only presence of at least one correct item.
     """
 
     scores = []
@@ -542,20 +688,40 @@ def evaluate_hit_rate_fast(model_func, ratings_train, ratings_test, movies, matr
     return sum(scores) / len(scores)
 
 
-
-
-# def hit_rate_at_k(recommended, relevant, k=10):
-#     """
-#     Computes Hit Rate@K.
-#     Returns 1 if at least one relevant item is in top-K recommendations, else 0.
-#     """
-
-#     recommended = recommended[:k]
-
-#     return int(len(set(recommended) & set(relevant)) > 0)
-
-
 def train_test_split_per_user(ratings, test_size=0.2):
+    """
+    Splits ratings dataset into train and test sets on a per-user basis.
+
+    Unlike standard random splitting, this function ensures that each user's
+    interaction history is split independently. This prevents user leakage
+    across training and test sets and allows for realistic evaluation
+    of personalized recommendation systems.
+
+    For users with fewer than 5 interactions, all data is assigned to
+    the training set.
+
+    Parameters
+    ----------
+    ratings : pandas.DataFrame
+        Dataset containing user-movie interactions with at least:
+        'userId', 'movieId', 'rating'.
+
+    test_size : float, default=0.2
+        Proportion of each user's interactions assigned to the test set.
+
+    Returns
+    -------
+    ratings_train : pandas.DataFrame
+        Training subset of the ratings dataset.
+
+    ratings_test : pandas.DataFrame
+        Test subset of the ratings dataset.
+
+    Notes
+    -----
+    - Splitting is performed independently for each user.
+    - Users with very few interactions (<5) are not split.
+    """
     train_list = []
     test_list = []
 
@@ -574,7 +740,57 @@ def train_test_split_per_user(ratings, test_size=0.2):
 
 def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k=10):
     """
-    Evaluates recommender using Hit Rate@K.
+    Evaluates a recommendation model using the Hit Rate@K metric.
+
+    The function performs offline evaluation of a recommender system by iterating
+    over all users present in the test dataset and checking whether at least one
+    relevant item appears in the top-K recommendations.
+
+    For each user:
+    - Relevant items are defined as movies from the test set with rating >= 3.5.
+    - The recommendation model is trained/used on the training dataset only.
+    - Top-K recommendations are generated for the user.
+    - Hit Rate@K is computed by checking whether any relevant item appears
+      in the recommended list.
+
+    The final score is the average hit rate across all evaluated users.
+
+    Parameters
+    ----------
+    model_func : callable
+        Recommendation function that generates top-N recommendations for a user.
+        Expected signature:
+
+            model_func(user_id, ratings, movies, matrix, top_n)
+
+    ratings_train : pandas.DataFrame
+        Training dataset used for building user profiles.
+
+    ratings_test : pandas.DataFrame
+        Test dataset used as ground truth for evaluation. Must contain at least:
+        'userId', 'movieId', 'rating'.
+
+    movies : pandas.DataFrame
+        Movie metadata dataset.
+
+    matrix : scipy.sparse matrix
+        Feature matrix used by the recommendation model.
+
+    k : int, default=10
+        Number of top recommendations considered in evaluation.
+
+    Returns
+    -------
+    float
+        Average Hit Rate@K score across all users in the test set.
+
+    Notes
+    -----
+    - Users without any relevant items in the test set are skipped.
+    - The metric is binary (0 or 1 per user), meaning it measures whether
+      at least one correct recommendation was made, not ranking quality.
+    - This implementation is less optimized than `evaluate_hit_rate_fast`
+      because it does not precompute user dictionaries.
     """
 
     scores = []
