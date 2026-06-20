@@ -12,10 +12,10 @@ def read_csv_files():
         - tags.
     """
 
-    links = pd.read_csv("links.csv")
-    movies =  pd.read_csv("movies.csv")
-    ratings =  pd.read_csv("ratings.csv")
-    tags =  pd.read_csv("tags.csv")
+    links = pd.read_csv("../data/raw/links.csv")
+    movies =  pd.read_csv("../data/raw/movies.csv")
+    ratings =  pd.read_csv("../data/raw/ratings.csv")
+    tags =  pd.read_csv("../data/raw/tags.csv")
 
     return links, movies, ratings, tags
 
