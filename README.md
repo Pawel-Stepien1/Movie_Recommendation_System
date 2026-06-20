@@ -61,7 +61,6 @@ my-ml-project/
 |   ├── explainability.py
 │   ├── features.py
 │   └── models.py
-├── reports/
 ├── .gitignore
 ├── mlflow/ 
 ├── README.md
