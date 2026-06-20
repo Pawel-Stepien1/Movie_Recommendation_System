@@ -743,6 +743,43 @@ def evaluate_hit_rate(model_func, ratings_train, ratings_test, movies, matrix, k
 #======================================================================================================================
 
 def content_based_scores(user_id, ratings, movies, matrix, min_rating=3.5):
+    """
+    Generates Content-Based component scores.
+
+    The function builds a user preference profile based on the user's historical
+    ratings (only positive ones, ratings >= min_rating) and uses it to compute
+    similarity between the user and all available movies.
+
+    The user profile is computed by aggregating TF-IDF feature vectors of liked
+    movies and normalizing the resulting vector. Cosine similarity is then used
+    to compare the user profile with all movie feature vectors.
+
+    Parameters
+    ----------
+    user_id : int
+        Identifier of the user for whom recommendations are generated.
+    ratings : pandas.DataFrame
+        Dataset containing user-movie interactions. Must include:
+        'userId', 'movieId', 'rating'.
+    movies : pandas.DataFrame
+        Movie metadata containing at least:
+        'movieId' and 'title'. The index must align with the feature matrix.
+    matrix : scipy.sparse matrix
+        TF-IDF feature matrix representing movies using genres and tags.
+    min_rating : float, default=3.5
+        Threshold for selecting positively rated movies used in user profile
+        construction.
+
+    Returns
+    -------
+    numpy.ndarray
+    Array containing cosine similarity scores between the user's
+    profile and all movies in the dataset. The i-th value corresponds
+    to the movie at index i in the movies DataFrame.
+
+    Returns a zero-filled array if the user has no positively rated
+    movies.
+    """
 
     user_ratings = ratings[ratings["userId"] == user_id]
     liked = user_ratings[user_ratings["rating"] >= min_rating]
@@ -780,6 +817,32 @@ def content_based_scores(user_id, ratings, movies, matrix, min_rating=3.5):
 
 # SGD score
 def get_cf_scores(model, user_id, user_map, movie_map, movies):
+    """
+        Generates Collaborative Filtering scores using ratings predicted
+        by the selected Matrix Factorization model.
+
+        Parameters
+        ----------
+        model : model
+            Selected trained SGD model.
+        user_id : int
+            Original user ID from the source dataset.
+        user_map : dict
+            Mapping from original user IDs to indices.
+        movie_map : dict
+            Mapping from original movie IDs to indices.
+        movies : pd.DataFrame
+            DataFrame containing movie titles and metadata.
+
+        Returns
+        -----------
+        full_predictions : numpy.ndarray
+            Array containing predicted ratings for all movies in the
+            movies DataFrame.
+
+            Movies that were not present in the Collaborative Filtering
+            training set receive a score of 0.
+        """
 
     if user_id not in user_map:
         return None
@@ -802,6 +865,56 @@ def get_cf_scores(model, user_id, user_map, movie_map, movies):
     return full_predictions
 
 def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, user_map, movie_map, alpha, top_n):
+    """
+    Generates recommendations for Hybrid Model.
+
+    The function builds recommendations with the help of 2 approaches: 
+    Collaborative Filtering and Content-Based. Both score vectors are normalized 
+    independently to the [0,1] range before aggregation to ensure comparable scales. 
+    The normalized scores are combined according to:
+
+    Hybrid Score = alpha * cf_score + (1 - alpha) * cb_score
+    
+    If the user is unknown to the Collaborative Filtering model,
+    the function falls back to the Content-Based recommendation
+    approach.
+
+    Parameters
+    ----------
+    user_id : int
+        Identifier of the user for whom recommendations are generated.
+    ratings : pandas.DataFrame
+        Dataset containing user-movie interactions. Must include:
+        'userId', 'movieId', 'rating'.
+    movies : pandas.DataFrame
+        Movie metadata containing at least:
+        'movieId' and 'title'. The index must align with the feature matrix.
+    matrix : scipy.sparse matrix
+        TF-IDF feature matrix representing movies using genres and tags.
+    cf_model : model
+        Selected trained SGD model.
+    user_map : dict
+        Mapping from original user IDs to indices.
+    movie_map : dict
+        Mapping from original movie IDs to indices.
+    alpha : float
+        Parameter determining the relative importance of both components;
+        weight assigned to the Collaborative Filtering component
+        when computing the hybrid score.
+    top_n : int
+        Number of recommendations to return.
+    
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing the top_n highest-ranked recommended
+        movies. Already rated movies are excluded from the final
+        recommendation list.
+        
+        Returned columns:
+        - movieId
+        - title
+    """
     
     cb_scores = content_based_scores(user_id, ratings, movies, matrix)
     cf_scores_results = get_cf_scores(cf_model, user_id, user_map, movie_map, movies)
@@ -829,6 +942,42 @@ def hybrid_model_recommendations(user_id, ratings, movies, matrix, cf_model, use
     return movies.iloc[recommendations_idx][["movieId", "title"]]
 
 def make_hybrid_evaluator(cf_model, user_map, movie_map, alpha):
+    """
+    Creates an evaluation wrapper for the Hybrid Model.
+
+    The function returns a callable that matches the interface required
+    by evaluation functions such as evaluate_hit_rate() and
+    evaluate_hit_rate_fast().
+
+    Parameters
+    ----------
+    cf_model : model
+        Trained Collaborative Filtering model used to generate
+        rating predictions.
+    user_map : dict
+        Mapping from original user IDs to internal user indices.
+    movie_map : dict
+        Mapping from original movie IDs to internal movie indices.
+    alpha : float
+        Weight assigned to the Collaborative Filtering component
+        when computing the hybrid score.
+
+    Returns
+    -------
+    callable
+        Function:
+
+        hybrid_for_eval(
+            user_id,
+            ratings,
+            movies,
+            matrix,
+            top_n
+        )
+
+        returning recommendations generated by
+        hybrid_model_recommendations().
+    """
     
     def hybrid_for_eval(user_id, ratings, movies, matrix, top_n):
 
